@@ -1,0 +1,7 @@
+simv
+csrc/
+simv.daidir/
+*.dump.vpd
+DVEfiles/
+.nfs*
+*.key
