@@ -1,51 +1,56 @@
 module TOP;
 
-   reg d, we;
-   wire q, qb;
+   reg [15:0] a, b;
+   reg [1:0] s;
+   wire [15:0] out;
    
    initial
    begin
-	 
-	 d = 0;
-	 we = 0;
-	 
-	 #1
-	    we = 1;
-	 #1
-	    we = 0;
-	 
-	 #1
-	    d = 1;
-	 #1
-	    we = 1;
-	 
-	 #1
-	    d = 0;
-	 #1
-	    d = 1;
-	 #1
-	    d = 0;
-	 #0.8
-	    we = 0;
-	 
-      end
+      a = 16'h0f0f;
+      b = 16'hf0f0;
+      s = 2'b00;
+
+      #5
+
+      a = 16'hcccc;
+      b = 16'h6666;
+      s = 2'b00;
+
+      #5
+
+      a = 16'h0f0f;
+      b = 16'hcc77;
+      s = 2'b01;
+
+      #5
+
+      a = 16'h1234;
+      b = 16'haaaa;
+      s = 2'b10;
+
+      #5
+
+      a = 16'h1282;
+      b = 16'h1282;
+      s = 2'b11;
+   end
    
    // Run simulation for 15 ns.  
-   initial #15 $finish;
+   initial #100 $finish;
    
    // Dump all waveforms to d_latch.dump.vpd
    initial
-      begin
-	 //$dumpfile ("d_latch.dump");
-	 //$dumpvars (0, TOP);
-	 $vcdplusfile("d_latch.dump.vpd");
-	 $vcdpluson(0, TOP); 
-      end // initial begin
+   begin
+      //$dumpfile ("d_latch.dump");
+      //$dumpvars (0, TOP);
+      $vcdplusfile("PS1b.dump.vpd");
+      $vcdpluson(0, TOP); 
+   end // initial begin
    
-   always @(posedge d)
-      $strobe ("at time %0d, wen = %b", $time, we);
+   // always @(posedge d)
+   //    $strobe ("at time %0d, wen = %b", $time, we);
    
-   d_latch latch1 (d, q, qb, we);
+   ALU alu(a, b, s, out);
    
 endmodule
 
@@ -79,7 +84,7 @@ endmodule
 
 module not_nand (a, o);
    input a;
-   output b;
+   output o;
 
    nand2$ n1(o, a, a);
 endmodule
@@ -94,8 +99,6 @@ module xor_nand (a, b, o);
    nand2$   n1(inter1, a_bar, b), 
             n2(inter1, b_bar, a),
             n3(o, inter1, inter2);
-wire 
-
 endmodule
 
 module and_nand (a, b, o);
@@ -105,7 +108,7 @@ module and_nand (a, b, o);
    wire inter;
 
    nand2$ n1(inter, a, b);
-   not_nand(inter, o);
+   not_nand nn1(inter, o);
 endmodule
 
 // Structural for full adder
@@ -164,24 +167,24 @@ module MUX4_16 (i0, i1, i2, i3, s, o);
    genvar i;
 
    generate
-      for (i = 0; i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen1
          nand2$   n0_i(inter1[i], i0[i], select_line[0]),
                   n1_i(inter2[i], i1[i], select_line[1]),
                   n2_i(inter3[i], i2[i], select_line[2]),
                   n3_i(inter4[i], i3[i], select_line[3]);
       end
 
-      for (i = 0; i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen2
          nand2$   n4_i(inter5[i], inter1[i], inter2[i]),
                   n5_i(inter6[i], inter3[i], inter4[i]);
       end
 
-      for (i = 0; i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen3
          not_nand nn1_i(inter5[i], inter7[i]), 
                   nn2_i(inter6[i], inter8[i]);
       end
 
-      for (i = 0; i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen4
          nand2$   n6_i(o[i], inter7[i], inter8[i]);
       end
    endgenerate
@@ -207,24 +210,24 @@ module MUX4_8 (i0, i1, i2, i3, s, o);
    genvar i;
 
    generate
-      for (i = 0; i < 8; i = i + 1) begin
+      for (i = 0; i < 8; i = i + 1) begin : gen1
          nand2$   n0_i(inter1[i], i0[i], select_line[0]),
                   n1_i(inter2[i], i1[i], select_line[1]),
                   n2_i(inter3[i], i2[i], select_line[2]),
                   n3_i(inter4[i], i3[i], select_line[3]);
       end
 
-      for (i = 0; i < 8; i = i + 1) begin
+      for (i = 0; i < 8; i = i + 1) begin : gen2
          nand2$   n4_i(inter5[i], inter1[i], inter2[i]),
                   n5_i(inter6[i], inter3[i], inter4[i]);
       end
 
-      for (i = 0; i < 8; i = i + 1) begin
+      for (i = 0; i < 8; i = i + 1) begin : gen3
          not_nand nn1_i(inter5[i], inter7[i]), 
                   nn2_i(inter6[i], inter8[i]);
       end
 
-      for (i = 0; i < 8; i = i + 1) begin
+      for (i = 0; i < 8; i = i + 1) begin : gen4
          nand2$   n6_i(o[i], inter7[i], inter8[i]);
       end
    endgenerate
@@ -239,7 +242,7 @@ module AND_ALU_slice (a, b, out);
 
    genvar i;
    generate
-      for (i = 0 i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen1
          and_nand an_i(a[i], b[i], out[i]);
       end
    endgenerate
@@ -251,7 +254,7 @@ module NOT_ALU_slice (b, out);
 
    genvar i;
    generate
-      for (i = 0 i < 16; i = i + 1) begin
+      for (i = 0; i < 16; i = i + 1) begin : gen1
          not_nand nn_i(b[i], out[i]);
       end
    endgenerate
@@ -263,7 +266,7 @@ module ADD_SAT_slice (a, b, s, out);
    output [15:0] out;
 
    wire [15:0] output_line;
-   wire [15:0] sum
+   wire [15:0] sum;
    wire [16:0] carry;
    wire ol, oh;
 
@@ -272,21 +275,21 @@ module ADD_SAT_slice (a, b, s, out);
    genvar i;
 
    // lower 8 FA
-   full_adder f_0(a[0], b[0], 0, s[0], sum[0], c[1]);
+   full_adder f_0(a[0], b[0], 0, sum[0], c[1]);
    generate
-      for (i = 1 i < 8; i = i + 1) begin
+      for (i = 1; i < 8; i = i + 1) begin : gen1
          full_adder f_i(a[i], b[i], cin[i], sum[i], c[i + 1]);
       end
    endgenerate
 
    wire select_and, carry_upper;
-   and_nand a(s[0], s[1], select_and);
+   and_nand an1(s[0], s[1], select_and);
    MUX2 mx1(c[8], 0, select_and, carry_upper);
 
    // upper 8 FA
-   full_adder f_8(a[8], b[8], carry_upper, s[8], sum[8], c[9]);
+   full_adder f_8(a[8], b[8], carry_upper, sum[8], c[9]);
    generate
-      for (i = 9 i < 16; i = i + 1) begin
+      for (i = 9; i < 16; i = i + 1) begin : gen2
          full_adder f_i(a[i], b[i], cin[i], sum[i], c[i + 1]);
       end
    endgenerate
@@ -296,10 +299,10 @@ module ADD_SAT_slice (a, b, s, out);
             x2(c[15], c[16], oh);
 
    wire smallest, largest;
-   assign largest = 2'h7f;
-   assign smallest = 2'h80;
+   assign largest = 8'h7f;
+   assign smallest = 8'h80;
    MUX4_8   mx4_8_1(sum[7:0], sum[7:0], smallest, largest, {ol, a[7]}, output_line[7:0]),
-            mx4_8_1(sum[15:8], sum[15:8], smallest, largest, {oh, a[15]}, output_line[15:8]);
+            mx4_8_2(sum[15:8], sum[15:8], smallest, largest, {oh, a[15]}, output_line[15:8]);
 endmodule
 
 
@@ -314,9 +317,9 @@ module ALU (a, b, s, out);
    // AND == 00, NOT == 01, ADD == 10, SAT == 11
    wire [15:0] and_line, not_line, add_sat_line;
 
-   AND_ALU_slice and_slice(a, b, and_line);
-   NOT_ALU_slice not_slice(b, not_line);
-   ADD_SAT_slice add_sat_slice(a, b, s, add_sat_line);
+   // AND_ALU_slice and_slice(a, b, out);
+   // NOT_ALU_slice not_slice(b, out);
+   ADD_SAT_slice add_sat_slice(a, b, s, out);
 
-   MUX4_16 mx4_16_1(and_line, not_line, add_sat_line, add_sat_line, s, out);
+   // MUX4_16 mx4_16_1(and_line, not_line, add_sat_line, add_sat_line, s, out);
 endmodule
