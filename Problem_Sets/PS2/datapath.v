@@ -1,8 +1,10 @@
 module TOP;
 	reg clk = 1;
-	reg [1:0] modrm; 
-	reg [2:0] disp, imm;
+	reg [1:0] mod;
+	reg [2:0] opcode_reg, rm; 
+	reg [31:0] disp, imm;
 
+	wire [7:0] modrm = {mod, opcode_reg, rm};
 	reg gate_eip, gate_sr1, gate_addr_gen;
 
 	reg clr_eip, pre_eip, en_eip;
@@ -12,17 +14,52 @@ module TOP;
 	reg [1:0] alu_shf_mux_s, sr2_mux_s, aluk;
 	reg clr_alu_shf, pre_alu_shf, en_alu_shf;
 
-	reg [31:0] MEM_BUS;
+	wire [31:0] sr1, sr2;
+	reg [2:0] sr1_select, sr2_select;
+	reg sr1_re, sr2_re, dr_we;
+
+	reg test_gate;
+	reg [31:0] test_gate_d;
+	wire [31:0] MEM_BUS;
 	
    	initial
 	begin
+
+		gate_eip = 'b0;
+		gate_addr_gen = 'b0;
+		disp = 32'h00ff00ff;
+		imm = 32'h1234abcd;
+
+		// setting default value for EBP (R5)
+		test_gate = 'b1;
+		test_gate_d = 32'hc0000000;
+		#100
+
+		test_gate = 'b0;
+		gate_sr1 = 'b0; 
+		sr1_select = 'b101;
+		sr2_select = 'b101;
+		sr1_re = 'b0; 
+		sr2_re = 'b0;
+		dr_we = 'b1;
+
+
 		// testing
-	
-	 
+		// ADD EBX, [EBP + disp32]
+		mod = 'b10;
+		opcode_reg = 'b011;
+		rm = 'b101;
+		aluk = 'b00;
+		gate_addr_gen = 'b1;
+		#100
+
+		gate_eip = 'b0;
+		gate_sr1 = 'b0;
+		gate_addr_gen = 'b0;
 	end
    
    	// Run simulation for 15 ns.  
-   	initial #1000 $finish;
+   	initial #2000 $finish;
 	
    	// Dump all waveforms to d_latch.dump.vpd
    	initial
@@ -32,20 +69,46 @@ module TOP;
 		$vcdplusfile("datapath.dump.vpd");
 		$vcdpluson(0, TOP); 
 	end // initial begin
-   
+   	bus_gate test(test_gate, test_gate_d, MEM_BUS);
    	agex_datapath agex (clk, modrm, disp, imm,
 						eip_disp_mux_s, eip_mux_s, gate_eip,
 						clr_eip, pre_eip, en_eip,
-						gate_sr1,
+						sr1, sr2,
 						gate_addr_gen,
 						alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
 						clr_alu_shf, pre_alu_shf, en_alu_shf,
 						MEM_BUS
 						);
+	register_structure reg_struct (gate_sr1, 
+								   sr1_select, sr2_select,
+								   sr1_re, sr2_re, dr_we,
+								   sr1, sr2, 
+								   MEM_BUS, clk
+								   );
 
 	always
-		#7 clk = ~clk;
+		#100 clk = ~clk;
    
+endmodule
+
+module register_structure (
+	gate_sr1, 
+	sr1_select, sr2_select,
+	sr1_re, sr2_re, dr_we,
+	sr1, sr2, 
+	MEM_BUS, clk
+);
+input clk;
+input gate_sr1;
+input sr1_re, sr2_re, dr_we;
+input [2:0] sr1_select, sr2_select;
+input [31:0] MEM_BUS; 
+output [31:0] sr1, sr2;
+
+wire [2:0]dr_select;
+assign dr_select = sr1_select;
+bus_gate sr1_gate(gate_sr1, sr1, MEM_BUS);
+regfile8x16 regfile(MEM_BUS, sr1_select, sr2_select, sr1_re, sr2_re, dr_select, dr_we, sr1, sr2, clk);	
 endmodule
 
 //---------------------------------------------------------
@@ -54,10 +117,11 @@ endmodule
 module agex_datapath (clk, modrm, disp, imm,
 eip_disp_mux_s, eip_mux_s, gate_eip,
 clr_eip, pre_eip, en_eip,
-gate_sr1,
+sr1, sr2,
 gate_addr_gen,
 alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
-clr_alu_shf, pre_alu_shf, en_alu_shf
+clr_alu_shf, pre_alu_shf, en_alu_shf,
+MEM_BUS
 );
 
 input clk;
@@ -84,14 +148,7 @@ assign imm8 = imm[31:24];
 assign imm32 = imm;
 sext_8 sext_imm8(imm8, imm8_sext);
 
-// register components
-input gate_sr1;
-wire [31:0] sr1, sr2;
-wire [2:0] sr1_select, sr2_select, dr_select;
-assign dr_select = sr1_select;
-wire sr1_re, sr2_re, dr_we;
-bus_gate sr1_gate(gate_sr1, sr1, MEM_BUS);
-regfile8x16 regfile(MEM_BUS, sr1_select, sr2_select, sr1_re, sr2_re, dr_select, dr_we, sr1, sr2, clk);
+input [31:0] sr1, sr2;
 
 // EIP
 input [1:0] eip_disp_mux_s, eip_mux_s;
