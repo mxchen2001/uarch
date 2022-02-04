@@ -5,3 +5,4 @@ simv.daidir/
 DVEfiles/
 .nfs*
 *.key
+.DS_Store
