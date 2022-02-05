@@ -15,43 +15,97 @@ module TOP;
 	reg clr_alu_shf, pre_alu_shf, en_alu_shf;
 
 	wire [31:0] sr1, sr2;
-	reg [2:0] sr1_select, sr2_select;
+	reg [2:0] dr_select, sr1_select, sr2_select;
 	reg sr1_re, sr2_re, dr_we;
 
+	reg gate_alu;
 	reg test_gate;
 	reg [31:0] test_gate_d;
 	wire [31:0] MEM_BUS;
 	
    	initial
 	begin
-
-		gate_eip = 'b0;
-		gate_addr_gen = 'b0;
-		disp = 32'h00ff00ff;
-		imm = 32'h1234abcd;
-
-		// setting default value for EBP (R5)
-		test_gate = 'b1;
-		test_gate_d = 32'hc0000000;
-		#100
-
-		test_gate = 'b0;
-		gate_sr1 = 'b0; 
-		sr1_select = 'b101;
-		sr2_select = 'b101;
-		sr1_re = 'b0; 
-		sr2_re = 'b0;
-		dr_we = 'b1;
-
-
-		// testing
-		// ADD EBX, [EBP + disp32]
+		// testing: ADD EBX, [EBP + disp32]
 		mod = 'b10;
 		opcode_reg = 'b011;
 		rm = 'b101;
 		aluk = 'b00;
+
+		sr1_re = 'b0; 
+		sr2_re = 'b0;
+
+		gate_eip = 'b0;
+		gate_addr_gen = 'b0;
+		gate_alu = 'b0;
+		gate_sr1 = 'b0;
+		disp = 32'h00ff00ff;
+		imm = 32'h1234abcd;
+		#100
+
+		// setting default value for EBX (R2)
+		test_gate = 'b1;
+		test_gate_d = 32'hcccccccc;
+		dr_select = 'b011;
+		#5
+		dr_we = 'b1;
+		#190
+		test_gate = 'b0;
+		dr_we = 'b0;
+		#5
+
+		// setting default value for EBP (R5)
+		test_gate = 'b1;
+		test_gate_d = 32'hb234abcd;
+		dr_select = 'b101;
+		#5
+		dr_we = 'b1;
+		#190
+		test_gate = 'b0;
+		dr_we = 'b0;
+		#5
+
+
+		// loading the evaluated address to memory
+		sr1_select = 'b101;
+		sr1_re = 'b1;
 		gate_addr_gen = 'b1;
 		#100
+		sr1_re = 'b0;
+		gate_addr_gen = 'b0;
+		if (MEM_BUS == 'hb333accc)
+			$strobe ("at time %0d, bus value matched", $time);
+
+		// memory access, lets say ~ 3 clk
+		#300
+
+		// load into ALU_R
+		test_gate = 'b1;
+		test_gate_d = 32'h0123beef;
+		#5
+		en_alu_shf = 'b1;
+		alu_shf_mux_s = 'b11;
+		clr_alu_shf = 'b1; 
+		pre_alu_shf = 'b1;
+		#190
+		test_gate = 'b0;
+		en_alu_shf = 'b0;
+		#5
+
+		// write back
+		dr_select = 'b011;
+		sr2_select = 'b011;
+		sr2_re = 'b1;
+		gate_alu = 'b1;
+		sr1_mux_s = 'b1;
+		sr2_mux_s = 'b00;
+		#5
+		dr_we = 'b1;
+		#95
+		gate_alu = 'b0;
+		#95
+		dr_we = 'b0;
+		#5
+
 
 		gate_eip = 'b0;
 		gate_sr1 = 'b0;
@@ -59,7 +113,7 @@ module TOP;
 	end
    
    	// Run simulation for 15 ns.  
-   	initial #2000 $finish;
+   	initial #4000 $finish;
 	
    	// Dump all waveforms to d_latch.dump.vpd
    	initial
@@ -77,38 +131,38 @@ module TOP;
 						gate_addr_gen,
 						alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
 						clr_alu_shf, pre_alu_shf, en_alu_shf,
+						gate_alu,
 						MEM_BUS
 						);
 	register_structure reg_struct (gate_sr1, 
-								   sr1_select, sr2_select,
+								   dr_select, sr1_select, sr2_select,
 								   sr1_re, sr2_re, dr_we,
 								   sr1, sr2, 
 								   MEM_BUS, clk
 								   );
 
 	always
-		#100 clk = ~clk;
+		#50 clk = ~clk;
    
 endmodule
 
 module register_structure (
 	gate_sr1, 
-	sr1_select, sr2_select,
+	dr_select, sr1_select, sr2_select,
 	sr1_re, sr2_re, dr_we,
-	sr1, sr2, 
+	sr1, sr2,
 	MEM_BUS, clk
 );
 input clk;
 input gate_sr1;
 input sr1_re, sr2_re, dr_we;
-input [2:0] sr1_select, sr2_select;
+input [2:0] dr_select, sr1_select, sr2_select;
 input [31:0] MEM_BUS; 
 output [31:0] sr1, sr2;
 
 wire [2:0]dr_select;
-assign dr_select = sr1_select;
 bus_gate sr1_gate(gate_sr1, sr1, MEM_BUS);
-regfile8x16 regfile(MEM_BUS, sr1_select, sr2_select, sr1_re, sr2_re, dr_select, dr_we, sr1, sr2, clk);	
+regfile8x32 regfile(MEM_BUS, sr1_select, sr2_select, sr1_re, sr2_re, dr_select, dr_we, sr1, sr2, clk);	
 endmodule
 
 //---------------------------------------------------------
@@ -121,6 +175,7 @@ sr1, sr2,
 gate_addr_gen,
 alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
 clr_alu_shf, pre_alu_shf, en_alu_shf,
+gate_alu,
 MEM_BUS
 );
 
@@ -187,17 +242,19 @@ wire [31:0] alu_shf_in, alu_shf_d, alu_shf_dbar;
 mux4_32 alu_shf_mux (alu_shf_in, 'b0, 'b1, sr2, MEM_BUS, alu_shf_mux_s0, alu_shf_mux_s1);
 reg32e$ ALU_SHF_R (clk, alu_shf_in, alu_shf_d, alu_shf_dbar, clr_alu_shf, pre_alu_shf, en_alu_shf);
 
+input gate_alu;
 wire [31:0] left_in_alu, right_in_alu, alu_out;
 mux2_32 sr1_mux (right_in_alu, sr1, alu_shf_d, sr1_mux_s);
 mux4_32 sr2_mux (left_in_alu, sr2, imm32, imm8_sext, alu_shf_d, sr2_mux_s0, sr2_mux_s1);
 ALU_SHF alu_shf_unit (aluk, right_in_alu, left_in_alu, alu_out);
+bus_gate alu_gate(gate_alu, alu_out, MEM_BUS);
 endmodule
 
 //---------------------------------------------------------
 // Mapping of x86 register R0-R7 := [EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI]
 // 
 //used modules: regfile8x8$(IN0,R1,R2,RE1,RE2,W,WE,OUT1,OUT2,CLOCK), double read reg
-module regfile8x16 (IN0, R1, R2, RE1, RE2, W, WE, OUT1, OUT2, CLOCK);
+module regfile8x32 (IN0, R1, R2, RE1, RE2, W, WE, OUT1, OUT2, CLOCK);
 
 input [31:0] IN0;           // write data
 input [2:0] R1, R2, W;     // read1, read2, write select
@@ -266,26 +323,31 @@ module effective_address_LUT (mod, opcode_reg, rm, l0, l1, r);
 input [1:0] mod;
 input [2:0] opcode_reg, rm;
 
+reg l0_temp, l1_temp, r_temp;
+assign l0 = l0_temp;
+assign l1 = l1_temp;
+assign r = r_temp;
+
 // TODO, implement structurally
-output reg l0, l1, r;
+output l0, l1, r;
 always @(mod, opcode_reg, rm) begin
 	if (mod == 'b00) begin
 		if (rm == 'b101) begin
-			l0 <= 'b1;
-			l1 <= 'b1;
-			r <= 'b1;
+			l0_temp <= 'b1;
+			l1_temp <= 'b1;
+			r_temp <= 'b0;
 		end else begin
-			l0 <= 'b0;
-			l1 <= 'b0;
-			r <= 'b0;
+			l0_temp <= 'b0;
+			l1_temp <= 'b0;
+			r_temp <= 'b1;
 		end
 	end else begin
-			l1 <= 'b1;
-			r <= 'b0;
+			l1_temp <= 'b1;
+			r_temp <= 'b1;
 		if (mod == 'b01)
-			l0 <= 'b0;
+			l0_temp <= 'b0;
 		else
-			l0 <= 'b1;
+			l0_temp <= 'b1;
 	end
 end
 endmodule
