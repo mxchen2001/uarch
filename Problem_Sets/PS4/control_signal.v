@@ -1,10 +1,12 @@
+`timescale 1 ns / 100 ps
+
 `define SR1_MUX_sr1   0
 `define SR1_MUX_alu_r 1
 
 `define SR2_MUX_sr2   0
 `define SR2_MUX_imm8  1
 `define SR2_MUX_imm32 2
-`define SR2_MUX_alu_R 3
+`define SR2_MUX_alu_r 3
 
 `define EIP_IN_MUX_adder  0
 `define EIP_IN_MUX_sr1    1
@@ -21,195 +23,233 @@
 `define GATE_SR2  3
 `define GATE_EIP  4
 `define GATE_AGEN 5
+`define GATE_MDR  6
 
 `define LD_NONE  'b000000
 `define LD_REG   'b000001
 `define LD_EIP   'b000010
 `define LD_ALU_R 'b000100
+`define LD_MDR   'b001000
+`define LD_MAR   'b010000
+
+`define DONT_CARE 'hz
 
 module TOP;
 	reg clk = 1;
-	reg [1:0] mod;
-	reg [2:0] opcode_reg, rm; 
-	reg [31:0] disp, imm;
+    reg [7:0] state, opcode, modrm;
 
-	wire [7:0] modrm = {mod, opcode_reg, rm};
-	reg gate_eip, gate_sr1, gate_addr_gen;
+    wire [31:0] sr1_d, sr2_d;
+    wire [2:0] sr1_out, sr2_out, dr_out;
+    wire [4:0] gate_signals;
+    wire [5:0] load_signals;
+    wire [1:0] eip_adder_mux;
+    wire [1:0] eip_in_mux;
+    wire [1:0] aluk;
 
-	reg clr_eip, pre_eip, en_eip;
-	reg [1:0] eip_disp_mux_s, eip_mux_s;
+	reg [31:0] disp32, imm32;
+	reg [7:0] disp8, imm8;
 
-	reg sr1_mux_s;
-	reg [1:0] alu_shf_mux_s, sr2_mux_s, aluk;
-	reg clr_alu_shf, pre_alu_shf, en_alu_shf;
+    wire gate_alu, gate_sr1, gate_sr2, gate_eip, gate_agen, gate_mdr;
 
-	wire [31:0] sr1, sr2;
-	reg [2:0] dr_select, sr1_select, sr2_select;
-	reg sr1_re, sr2_re, dr_we;
+    gate_signals_decoder gate_decode(gate_signals, gate_alu, gate_sr1, gate_sr2, gate_eip, gate_agen, gate_mdr);
 
-	reg gate_alu;
-	reg test_gate;
-	reg [31:0] test_gate_d;
-	wire [31:0] MEM_BUS;
-	
+    wire load_reg, load_eip, load_alu_r, load_mdr, load_mar;
+
+    wire [31:0] MEM_BUS;
+
+    wire [1:0] sr2_mux, alu_r_mux;
+    wire sr1_mux;
+
    	initial
 	begin
-		// testing: ADD EBX, [EBP + disp32]
-		mod = 'b10;
-		opcode_reg = 'b011;
-		rm = 'b101;
-		aluk = 'b00;
+        // testing: MOV EAX,0x12340000   //  B8 00 00 34 12
+        opcode <= 8'hB8;
+        modrm <= 8'hzz;
+        imm32 <= 32'h12340000;
 
-		sr1_re = 'b0; 
-		sr2_re = 'b0;
+        state <= 12;
 
-		gate_eip = 'b0;
-		gate_addr_gen = 'b0;
-		gate_alu = 'b0;
-		gate_sr1 = 'b0;
-		disp = 32'h00ff00ff;
-		imm = 32'h1234abcd;
-		#100
+        #200
 
-		// setting default value for EBX (R2)
-		test_gate = 'b1;
-		test_gate_d = 32'hcccccccc;
-		dr_select = 'b011;
-		#5
-		dr_we = 'b1;
-		#190
-		test_gate = 'b0;
-		dr_we = 'b0;
-		#5
+        // testing: MOV ECX,0x12340000   //  B9 00 00 34 12
+        opcode <= 8'hB9;
+        modrm <= 8'hzz;
+        imm32 <= 32'h00001234;
 
-		// setting default value for EBP (R5)
-		test_gate = 'b1;
-		test_gate_d = 32'hb234abcd;
-		dr_select = 'b101;
-		#5
-		dr_we = 'b1;
-		#190
-		test_gate = 'b0;
-		dr_we = 'b0;
-		#5
+        state <= 12;
 
+        #200
 
-		// loading the evaluated address to memory
-		sr1_select = 'b101;
-		sr1_re = 'b1;
-		gate_addr_gen = 'b1;
-		#100
-		sr1_re = 'b0;
-		gate_addr_gen = 'b0;
-		if (MEM_BUS == 'hb333accc)
-			$strobe ("at time %0d, bus value matched", $time);
+        imm32 <= 32'hzzzzzzzz;
 
-		// memory access, lets say ~ 3 clk
-		#300
+        // testing: ADD EBX, [EBP + disp32]          //  01 C8
+        opcode <= 8'h03;
+        modrm <= 8'h9D;
+        disp32 <= 32'h00ff00ff;
 
-		// load into ALU_R
-		test_gate = 'b1;
-		test_gate_d = 32'h0123beef;
-		#5
-		en_alu_shf = 'b1;
-		alu_shf_mux_s = 'b11;
-		clr_alu_shf = 'b1; 
-		pre_alu_shf = 'b1;
-		#190
-		test_gate = 'b0;
-		en_alu_shf = 'b0;
-		#5
+        state <= 1;
+        #200
+        state <= 2;
+        #600
+        state <= 3;
+        #200
+        state <= 4;
+        #200
 
-		// write back
-		dr_select = 'b011;
-		sr2_select = 'b011;
-		sr2_re = 'b1;
-		gate_alu = 'b1;
-		sr1_mux_s = 'b1;
-		sr2_mux_s = 'b00;
-		#5
-		dr_we = 'b1;
-		#95
-		gate_alu = 'b0;
-		#95
-		dr_we = 'b0;
-		#5
+        // testing: ADD [EBP + disp32], EBX          //  01 C8
+        opcode <= 8'h01;
+        modrm <= 8'h9D;
+        disp32 <= 32'h00ff00ff;
 
+        state <= 1;
+        #200
+        state <= 2;
+        #600
+        state <= 3;
+        #200
+        state <= 5;
+        #200
+        state <= 6;
+        #600
 
-		gate_eip = 'b0;
-		gate_sr1 = 'b0;
-		gate_addr_gen = 'b0;
+        // testing: ADD [EAX,ECX          //  01 C8
+        opcode <= 8'h01;
+        modrm <= 8'hC8;
+
+        state <= 8;
+
+        #200
+
+		// testing: ADD EBX, 0x12340000   // 83 C0 FF
+        opcode <= 8'h83;
+        modrm <= 8'hC0;
+        imm8 <= -8'h1;
+
+        state <= 8;
+
+        #200
+        
+        imm8 <= -8'hzz;
+		// testing: jmp, 0x05 (rel32)   // E9 05 00 00 00 
+        opcode <= 8'he9;
+        modrm <= 8'hzz;
+        imm32 <= 32'h00000005;
+
+        state <= 16;
 	end
    
    	// Run simulation for 15 ns.  
-   	initial #4000 $finish;
+   	initial #10000 $finish;
 	
    	// Dump all waveforms to d_latch.dump.vpd
    	initial
 	begin
 		//$dumpfile ("d_latch.dump");
 		//$dumpvars (0, TOP);
-		$vcdplusfile("datapath.dump.vpd");
+		$vcdplusfile("control_signal.dump.vpd");
 		$vcdpluson(0, TOP); 
 	end // initial begin
-   	bus_gate test(test_gate, test_gate_d, MEM_BUS);
-   	agex_datapath agex (clk, modrm, disp, imm,
-						eip_disp_mux_s, eip_mux_s, gate_eip,
-						clr_eip, pre_eip, en_eip,
-						sr1, sr2,
-						gate_addr_gen,
-						alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
-						clr_alu_shf, pre_alu_shf, en_alu_shf,
+
+
+    
+    
+
+    datapathCS dp_controls(state, opcode, modrm, clk,
+                           aluk, sr1_out, sr2_out, dr_out, sr1_mux, sr2_mux,
+                           eip_adder_mux, eip_in_mux,
+                           gate_signals, load_signals);
+
+
+   	// bus_gate test(test_gate, test_gate_d, MEM_BUS);
+   	agex_datapath agex (clk, modrm, disp32, imm32,
+						
+                        eip_adder_mux, eip_in_mux, gate_eip,
+
+						load_eip,
+						
+                        sr1_d, sr2_d,
+						
+                        gate_agen,
+
+						alu_r_mux, sr1_mux, sr2_mux,
+                        
+                        aluk,
+
+						load_alu_r,
+
 						gate_alu,
 						MEM_BUS
 						);
-	register_structure reg_struct (gate_sr1, 
-								   dr_select, sr1_select, sr2_select,
-								   sr1_re, sr2_re, dr_we,
-								   sr1, sr2, 
-								   MEM_BUS, clk
-								   );
+
+    register_structure reg_struct (
+                                   gate_sr1, gate_sr2,
+                                   dr_out, sr1_out, sr2_out,
+                                   load_reg,
+                                   sr1_d, sr2_d, 
+                                   MEM_BUS, clk
+                                  );
 
 	always
 		#50 clk = ~clk;
    
 endmodule
 
-module gate_signals_encoder(gate_type, gate_signal);
-input [2:0] gate_type; 
-output [5:0] gate_signal;
+module gate_signals_decoder (gate_signal, 
+gate_alu, gate_sr1, gate_sr2, gate_eip, gate_agen, gate_mdr);
+input [4:0] gate_signal;
+output reg gate_alu, gate_sr1, gate_sr2, gate_eip, gate_agen, gate_mdr;
 
-always @(*) begin
-    case (gate)
-        'h1: gate_signal = 'b00001;
-        'h2: gate_signal = 'b00010;
-        'h3: gate_signal = 'b00100;
-        'h4: gate_signal = 'b01000;
-        'h5: gate_signal = 'b10000;
-        default: gate_signal = 'b00000;
+always @* begin
+    gate_alu <= 0;
+    gate_sr1 <= 0;
+    gate_sr2 <= 0;
+    gate_eip <= 0;
+    gate_agen <= 0;
+    gate_mdr <= 0;
+    case (gate_signal)
+        `GATE_ALU : gate_alu <= 1;
+        `GATE_SR1 : gate_sr1 <= 1;
+        `GATE_SR2 : gate_sr2 <= 1;
+        `GATE_EIP : gate_eip <= 1;
+        `GATE_AGEN : gate_agen <= 1;
+        `GATE_MDR : gate_mdr <= 1;
     endcase
-end
+end    
+endmodule
+
+
+module load_signals_isolater (load_signals, 
+load_reg, load_eip, load_alu_r, load_mdr, load_mar);
+input [5:0] load_signals;
+output load_reg, load_eip, load_alu_r, load_mdr, load_mar;
+
+assign load_reg = load_signals[0];
+assign load_eip = load_signals[1];
+assign load_alu_r = load_signals[2];
+assign load_mdr = load_signals[3];
+assign load_mar = load_signals[4];
 endmodule
 
 module alu_signal(opcode, opcode_reg, aluk);
     input [7:0] opcode;
     input [2:0] opcode_reg; 
-    output [1:0] aluk;
+    output reg [1:0] aluk;
+
     always @* begin 
         case (opcode)
-            'h81, 'h83: aluk = {'b0, opcode_reg[0]};
-            'h01, 'h03: aluk = 'b00; 
-            'h09, 'h0b: aluk = 'b01; 
-            'hd1, 'hd3, 'hc1: aluk = 'b11;
-            default: 
+            'h81, 'h83: aluk = {1'b0, opcode_reg[0]};
+            'h01, 'h03: aluk = 2'b00; 
+            'h09, 'h0b: aluk = 2'b01; 
+            'hd1, 'hd3, 'hc1: aluk = 2'b11;
+            default: aluk = 2'b00;
         endcase
     end
 endmodule
 
-module datapathCS (state, opcode, modrm, clk
-aluk, sr1_out, sr2_out, dr_out, 
+module datapathCS (state, opcode, modrm, clk,
+aluk, sr1_out, sr2_out, dr_out, sr1_mux_out, sr2_mux_out,
 eip_adder_mux, eip_in_mux,
-gate_signals, load_signalss
+gate_signals, load_signals
 );
 
 input [7:0] state, opcode, modrm;
@@ -222,45 +262,82 @@ assign opcode_reg = modrm[5:3];
 assign rm = modrm[2:0];
 
 output [2:0] sr1_out, sr2_out, dr_out;
-addressingModeCS agen(opcode, 'hzz, 'hzz, modrm, sr1_out, sr2_out, dr_out );
+output [1:0] sr2_mux_out;
+output sr1_mux_out;
 
-output [7:0] gate_signals;
-reg [2:0] gate_type;
-gate_signals_encoder gs_encoder(gate_type, gate_signals);
+wire [2:0] sr1_out_temp, sr2_out_temp, dr_out_temp;
+wire [1:0] sr2_mux_out_temp;
+wire sr1_mux_out_temp;
 
-output [5:0] load_signals;
 
-output [1:0] eip_adder_mux;
-output [1:0] eip_in_mux;
+assign sr1_out = sr1_out_temp;
+assign sr2_out = sr2_out_temp;
+assign sr2_out = sr2_out_temp;
+assign sr1_mux_out = sr1_mux_out_temp;
+assign sr2_mux_out = sr2_mux_out_temp;
+
+addressingModeCS agen(opcode, 8'hzz, 8'hzz, modrm, sr1_out_temp, sr2_out_temp, dr_out_temp, sr1_mux_out_temp, sr2_mux_out_temp);
+
+output reg [4:0] gate_signals;
+
+output reg [5:0] load_signals;
+
+output reg [1:0] eip_adder_mux;
+output reg [1:0] eip_in_mux;
 
 output [1:0] aluk;
 alu_signal alu_sig(opcode, opcode_reg, aluk);
 
 reg [1:0] SR2_MUX;
 
-always @(posedge clk) begin
+always @* begin
     case (state)
-        'h8 : begin // ADD dr <- sr1 + sr2
-            if (opcode == 'h83) begin
-                dr_out = sr1_out;
-            end
-            SR2_MUX = SR2_MUX_imm32;
-            gate_type = GATE_ALU;
-            load_signals = LD_REG;
+        'd1 : begin
+            gate_signals <= `GATE_AGEN;
+            load_signals <= `LD_MAR;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
         end
-        'h12 : begin // MOV dr <- imm32
-            SR2_MUX = SR2_MUX_imm32;
-            gate_type = GATE_SR2;
-            load_signals = LD_REG;
+        'd3 : begin
+            gate_signals <= `GATE_MDR;
+            load_signals <= `LD_ALU_R;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
         end
-        'h16 : begin // JMP eip + rel32
-            load_signals = LD_EIP;
-            eip_in_mux = EIP_IN_MUX_adder;
-            eip_adder_mux = EIP_ADDER_MUX_disp32;
+        'd4: begin
+            gate_signals <= `GATE_ALU;
+            load_signals <= `LD_REG;
+        end
+        'd5: begin
+            gate_signals <= `GATE_ALU;
+            load_signals <= `LD_MDR;
+        end
+        'd8 : begin // ADD dr <- sr1 + sr2
+            // if (opcode == 'h83)
+            SR2_MUX <= `SR2_MUX_imm32;
+            gate_signals <= `GATE_ALU;
+            load_signals <= `LD_REG;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
+        end
+        'd12 : begin // MOV dr <- imm32
+            SR2_MUX <= `SR2_MUX_imm32;
+            gate_signals <= `GATE_SR2;
+            load_signals <= `LD_REG;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
+        end
+        'd16 : begin // JMP eip + rel32
+            gate_signals <= `GATE_NONE;
+            load_signals <= `LD_EIP;
+            eip_in_mux <= `EIP_IN_MUX_adder;
+            eip_adder_mux <= `EIP_ADDER_MUX_disp32;
         end
         default: begin
-            load_signals = LD_NONE;
-            gate_type = GATE_NONE;
+            load_signals <= `LD_NONE;
+            gate_signals <= `GATE_NONE;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
         end
     endcase
 end
@@ -270,31 +347,32 @@ endmodule
 
 module addressingModeCS (
   opcode0, opcode1, opcode2, modrm, 
-  sr1_out, sr2_out, dr_out
+  sr1_out, sr2_out, dr_out,
+  sr1_mux_out, sr2_mux_out
 );
     
 // 1, 2, 3 byte opcode
 input [7:0] opcode0, opcode1, opcode2;
 output [2:0] sr1_out, sr2_out, dr_out;
+output [1:0] sr2_mux_out;
+output sr1_mux_out;
 
 // MODRM byte
 input [7:0] modrm;
 // MODRM sub-fields
-wire [1:0] mode;
-wire [2:0] reg_opcode, rm;
+wire [1:0] mod;
+wire [2:0] opcode_reg, rm;
+
+assign mod = modrm[7:6];
+assign opcode_reg = modrm[5:3];
+assign rm = modrm[2:0];
 
 // Implement for relavent test
 // Register Order: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
-/*
-        MOV EAX,0x12340000   //  B8 00 00 34 12
-        MOV ECX,0x00001234   //  B9 34 12 00 00
-        ADD EAX,ECX          //  01 C8
-        ADD EAX,#-1          //  83 C0 FF
-        HLT                  //  F4
-*/
 
 reg [2:0] SR1_reg;
 reg [2:0] SR2_reg;
+
 
 reg [1:0] SR1_addressiblity; // 0 = Low 8, 1 = High 8 , 2 = Low 16, 3 = Full 32
 reg [1:0] SR2_addressiblity; // 0 = Low 8, 1 = High 8 , 2 = Low 16, 3 = Full 32
@@ -303,166 +381,112 @@ reg [1:0] SR2_addressiblity; // 0 = Low 8, 1 = High 8 , 2 = Low 16, 3 = Full 32
 reg [1:0] SR1_select; // 0 = SR1, 1 = EIP
 reg [1:0] DR_select; // 0 = SR1, 1 = EIP
 
-reg [1:0] SR2_mux;
-reg SR1_mux;
+assign sr1_out = SR1_reg;
+assign sr2_out = SR2_reg;
+assign dr_out = SR1_reg;
 
-reg rm_mode; // 0 = memory, 1 = register
+reg SR1_mux;
+reg [1:0] SR2_mux;
+
+assign sr1_mux_out = SR1_mux;
+assign sr2_mux_out = SR2_mux;
 
 always @(*) begin
     // MOV+ case
     if (opcode0[7:4] == 'hb) begin
-        SR1_reg = opcode0[3:0] >= 8 ? opcode0[3:0] - 8 : opcode0[3:0];
+        SR1_reg <= opcode0[3:0] >= 8 ? opcode0[3:0] - 8 : opcode0[3:0];
+        SR2_reg <= 'bzzz;
+        DR_select <= 0;
+        SR1_select <= 0;
+        SR1_mux <= `SR1_MUX_sr1; 
+        SR2_mux <= `SR2_MUX_imm32;
     end else begin
         case (opcode0)
             'h01, 'h09, 'h89: begin // r/m32 <- r/m32 + r32
-                SR1_reg = rm;
-                SR2_reg = reg_opcode;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= rm;
+                SR2_reg <= opcode_reg;
+                DR_select <= 0;
+                SR1_select <= 0;
+                SR1_mux <= (mod == 2'b11) ? `SR1_MUX_sr1 :`SR1_MUX_alu_r;
+                SR2_mux <= `SR2_MUX_sr2;
             end
             'h03, 'h0b, 'h8b: begin // r32 <- r32 + r/m32
-                SR1_reg = reg_opcode;
-                SR2_reg = rm;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= opcode_reg;
+                SR2_reg <= rm;
+                DR_select <= 0;
+                SR1_select <= 0;
+                SR1_mux <= `SR1_MUX_sr1;
+                SR2_mux <= (mod == 2'b11) ? `SR2_MUX_sr2 :`SR2_MUX_alu_r;
             end
             'h81: begin // r/m32 <- r/m32 + imm32
-                SR1_reg = rm;
-                SR2_reg = 'bzzz;
-                SR2_mux = SR2_MUX_imm32;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= rm;
+                SR2_reg <= 'bzzz;
+                SR2_mux <= `SR2_MUX_imm32;
+                DR_select <= 0;
+                SR1_select <= 0;
+                SR1_mux <= (mod == 2'b11) ? `SR1_MUX_sr1 :`SR1_MUX_alu_r;
+                SR2_mux <= `SR2_MUX_imm32;
             end
             'h83: begin // r/m32 <- r/m32 + imm8
-                SR1_reg = rm;
-                SR2_reg = 'bzzz;
-                SR2_mux = SR2_MUX_imm8;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= rm;
+                SR2_reg <= 'bzzz;
+                SR2_mux <= `SR2_MUX_imm8;
+                DR_select <= 0;
+                SR1_select <= 0;
+                SR1_mux <= (mod == 2'b11) ? `SR1_MUX_sr1 :`SR1_MUX_alu_r;
+                SR2_mux <= `SR2_MUX_imm8;
             end
             'hd1: begin // SAR by 1
-                SR1_reg = rm;
-                SR2_reg = 'bzzz;
-                SR2_mux = SR2_MUX_alu_R;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= rm;
+                SR2_reg <= 'bzzz;
+                SR2_mux <= `SR2_MUX_alu_r;
+                DR_select <= 0;
+                SR1_select <= 0;
             end
             'hd3: begin // SAR by CL
-                SR1_reg = rm;
-                SR2_reg = 'b001;
-                SR2_mux = SR2_MUX_sr2;
-                DR_select = 0;
-                SR1_select = 0;
-                SR2_addressiblity = 0; // low 8 bits
+                SR1_reg <= rm;
+                SR2_reg <= 'b001;
+                SR2_mux <= `SR2_MUX_sr2;
+                DR_select <= 0;
+                SR1_select <= 0;
+                SR2_addressiblity <= 0; // low 8 bits
             end
             'hc1: begin // SAR by imm8
-                SR1_reg = rm;
-                SR2_reg = 'bzzz;
-                SR2_mux = SR2_MUX_imm8;
-                DR_select = 0;
-                SR1_select = 0;
+                SR1_reg <= rm;
+                SR2_reg <= 'bzzz;
+                SR2_mux <= `SR2_MUX_imm8;
+                DR_select <= 0;
+                SR1_select <= 0;
             end
             'heb : begin
-                SR1_reg = 'bzzz;
-                SR2_reg = 'bzzz;
-                DR_select = 1;
-                SR1_select = 1;
+                SR1_reg <= 'bzzz;
+                SR2_reg <= 'bzzz;
+                DR_select <= 1;
+                SR1_select <= 1;
             end
             'he9 : begin
-                SR1_reg = 'bzzz;
-                SR2_reg = 'bzzz;
-                DR_select = 1;
-                SR1_select = 1;
+                SR1_reg <= 'bzzz;
+                SR2_reg <= 'bzzz;
+                DR_select <= 1;
+                SR1_select <= 1;
             end
             'hff : begin
-                SR1_reg = 'bzzz;
-                SR2_reg = 'bzzz;
-                DR_select = 1;
-                SR1_select = 1;
+                SR1_reg <= 'bzzz;
+                SR2_reg <= 'bzzz;
+                DR_select <= 1;
+                SR1_select <= 1;
             end
             'hea : begin
-                SR1_reg = 'bzzz;
-                SR2_reg = 'bzzz;
-                DR_select = 1;
-                SR1_select = 1;
+                SR1_reg <= 'bzzz;
+                SR2_reg <= 'bzzz;
+                DR_select <= 1;
+                SR1_select <= 1;
             end
-            default: 
-        endcase
+            default: begin
+
+            end
+        endcase     
     end
 end
 
-endmodule
-
-
-// Longest instructino is up to 15 bytes
-// TODO
-module decode(
-    byte0, byte1, byte2, byte3, byte4
-    byte5, byte6, byte7, byte8, byte9
-    byte10, byte11, byte12, byte13, byte14
-);
-
-input [7:0] byte0, byte1, byte2, byte3, byte4, 
-            byte5, byte6, byte7, byte8, byte9, 
-            byte10, byte11, byte12, byte13, byte14;
-
-reg [3:0] instruction_size;
-
-reg [7:0] opcode;
-reg [7:0] modrm;
-
-reg [7:0] sib; // No SIB byte yet.
-
-reg [31:0] imm32;
-reg [31:0] disp32;
-
-reg [7:0] imm8;
-reg [7:0] disp8;
-
-// Assuming no prefix
-always @(*) begin
-    case (byte0)
-        'h01, 'h03: begin // ADD r/m32, r32 + ADD r32, r/m32
-            instruction_size = 2;
-            opcode = byte0;
-        end 
-        'h81, 'h83: begin // ALU op based on modrm.opcode
-            
-        end
-        'h09: begin
-
-        end 
-        'h0b: begin
-            
-        end
-        'h89: begin // r/m32 <- r/m32 + r32
-            
-        end
-        'h8b: begin // r32 <- r32 + r/m32
-            
-        end
-        'hd1: begin // SAR by 1
-
-        end
-        'hd3: begin // SAR by CL
-
-        end
-        'hc1: begin // SAR by imm8
-
-        end
-        'heb : begin
-
-        end
-        'he9 : begin
-
-        end
-        'hff : begin
-
-        end
-        'hea : begin
-
-        end
-        default: 
-    endcase
-end
 endmodule

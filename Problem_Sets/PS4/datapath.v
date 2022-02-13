@@ -1,34 +1,34 @@
 module register_structure (
-	reg_addressiblity,
-	gate_sr1, 
+	gate_sr1, gate_sr2, 
 	dr_select, sr1_select, sr2_select,
-	sr1_re, sr2_re, dr_we,
+	dr_we,
 	sr1, sr2,
 	MEM_BUS, clk
 );
 input clk;
-input gate_sr1;
-input sr1_re, sr2_re, dr_we;
-input [1:0] reg_addressiblity;
+input gate_sr1, gate_sr2;
+input dr_we;
+// input [1:0] reg_addressiblity;
 input [2:0] dr_select, sr1_select, sr2_select;
 input [31:0] MEM_BUS; 
 output [31:0] sr1, sr2;
 
-wire [2:0]dr_select;
+wire [2:0] dr_select;
 bus_gate sr1_gate(gate_sr1, sr1, MEM_BUS);
-regfile8x32 regfile(MEM_BUS, sr1_select, sr2_select, sr1_re, sr2_re, dr_select, dr_we, sr1, sr2, clk);	
+bus_gate sr2_gate(gate_sr2, sr2, MEM_BUS);
+regfile8x32 regfile(MEM_BUS, sr1_select, sr2_select, 1'b1, 1'b1, dr_select, dr_we, sr1, sr2, clk);	
 endmodule
 
 //---------------------------------------------------------
 // Datapath responsible for address generation and execution
 // Assumes: decoded instruction
-module agex_datapath (clk, modrm, disp, imm,
+module agex_datapath (clk, modrm, disp32, imm32,
 eip_adder_mux_s, eip_in_mux_s, gate_eip,
-clr_eip, pre_eip, en_eip,
+en_eip,
 sr1, sr2,
 gate_addr_gen,
 alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
-clr_alu_shf, pre_alu_shf, en_alu_shf,
+en_alu_shf,
 gate_alu,
 MEM_BUS
 );
@@ -43,18 +43,16 @@ assign mod = modrm[7:6];
 assign opcode_reg = modrm[5:3];
 assign rm = modrm[2:0];
 
-input [31:0] disp;
+input [31:0] disp32;
 wire [7:0] disp8;
-wire [31:0] disp32, disp8_sext;
-assign disp8 = disp[31:24];
-assign disp32 = disp;
+wire [31:0] disp8_sext;
+assign disp8 = disp32[31:24];
 sext_8 sext_disp8(disp8, disp8_sext);
 
-input [31:0] imm;
+input [31:0] imm32;
 wire [7:0] imm8;
-wire [31:0] imm32, imm8_sext;
-assign imm8 = imm[31:24];
-assign imm32 = imm;
+wire [31:0] imm8_sext;
+assign imm8 = imm32[31:24];
 sext_8 sext_imm8(imm8, imm8_sext);
 
 input [31:0] sr1, sr2;
@@ -67,13 +65,13 @@ assign eip_adder_mux_s0 = eip_adder_mux_s[0];
 assign eip_adder_mux_s1 = eip_adder_mux_s[1];
 assign eip_in_mux_s0 = eip_in_mux_s[0];
 assign eip_in_mux_s1 = eip_in_mux_s[1];
-input clr_eip, pre_eip, en_eip;
+input en_eip;
 wire [31:0] eip_d, eip_dbar;
 wire [31:0] eip_in, eip_disp_cal, eip_disp_ret;
 mux4_32 eip_adder_mux (eip_disp_cal, 'b1, 'b1, disp8_sext, disp32, eip_adder_mux_s0, eip_adder_mux_s1);
 mux4_32 eip_in_mux (eip_in, eip_disp_ret, sr1, imm32, MEM_BUS, eip_in_mux_s0, eip_in_mux_s1);
 adder_32 eip_disp_adder (eip_disp_ret, eip_disp_cal, eip_d);
-reg32e$ EIP (clk, eip_in, eip_d, eip_dbar, clr_eip, pre_eip, en_eip);
+reg32e$ EIP (clk, eip_in, eip_d, eip_dbar, en_eip, en_eip, en_eip);
 bus_gate eip_gate (gate_eip, eip_d, MEM_BUS);
 
 // address generation
@@ -91,10 +89,10 @@ assign alu_shf_mux_s1 = alu_shf_mux_s[1];
 assign sr2_mux_s0 = sr2_mux_s[0];
 assign sr2_mux_s1 = sr2_mux_s[1];
 
-input clr_alu_shf, pre_alu_shf, en_alu_shf;
+input en_alu_shf;
 wire [31:0] alu_shf_in, alu_shf_d, alu_shf_dbar;
 mux4_32 alu_shf_mux (alu_shf_in, 'b0, 'b1, sr2, MEM_BUS, alu_shf_mux_s0, alu_shf_mux_s1);
-reg32e$ ALU_SHF_R (clk, alu_shf_in, alu_shf_d, alu_shf_dbar, clr_alu_shf, pre_alu_shf, en_alu_shf);
+reg32e$ ALU_SHF_R (clk, alu_shf_in, alu_shf_d, alu_shf_dbar, en_alu_shf, en_alu_shf, en_alu_shf);
 
 input gate_alu;
 wire [31:0] left_in_alu, right_in_alu, alu_out;
