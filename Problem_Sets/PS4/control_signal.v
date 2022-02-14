@@ -8,6 +8,13 @@
 `define SR2_MUX_imm32 2
 `define SR2_MUX_alu_r 3
 
+`define ALU_R_MUX_0   0
+`define ALU_R_MUX_1   1
+`define ALU_R_MUX_sr2 2
+`define ALU_R_MUX_bus 3
+
+
+
 `define EIP_IN_MUX_adder  0
 `define EIP_IN_MUX_sr1    1
 `define EIP_IN_MUX_imm32  2
@@ -55,13 +62,45 @@ module TOP;
 
     wire load_reg, load_eip, load_alu_r, load_mdr, load_mar;
 
+    load_signals_isolater ld_isolate(load_signals, load_reg, load_eip, load_alu_r, load_mdr, load_mar);
+
     wire [31:0] MEM_BUS;
+    reg [31:0] test_MEM_BUS;
+
+    assign MEM_BUS = test_MEM_BUS;
+
+    // reg test_load_reg_en;
+    // assign load_reg = test_load_reg_en;
+
+    reg [2:0] test_dr_out;
+    assign dr_out = test_dr_out;
 
     wire [1:0] sr2_mux, alu_r_mux;
     wire sr1_mux;
 
    	initial
 	begin
+        state <= 20;
+
+		// setting default value for EBX (R2)
+		test_MEM_BUS = 32'hcccccccc;
+		test_dr_out <= 3'b011;
+		// test_load_reg_en <= 'b1;
+		#200
+		test_dr_out <= 3'bzzz;
+		test_MEM_BUS = `DONT_CARE;
+		// test_load_reg_en <= 'bz;
+
+		// setting default value for EBP (R5)
+		test_MEM_BUS = 32'hb234abcd;
+		test_dr_out <= 3'b101;
+		// test_load_reg_en <= 'b1;
+		#200
+		test_dr_out <= 3'bzzz;
+		test_MEM_BUS = `DONT_CARE;
+		// test_load_reg_en <= 'bz;
+
+
         // testing: MOV EAX,0x12340000   //  B8 00 00 34 12
         opcode <= 8'hB8;
         modrm <= 8'hzz;
@@ -91,8 +130,13 @@ module TOP;
         #200
         state <= 2;
         #600
+        test_MEM_BUS <= 32'hdeadbeef;
         state <= 3;
         #200
+        state <= 0;
+        #100
+        test_MEM_BUS <= `DONT_CARE;
+        #100
         state <= 4;
         #200
 
@@ -105,8 +149,12 @@ module TOP;
         #200
         state <= 2;
         #600
+        test_MEM_BUS <= 32'hdeadbeef;
         state <= 3;
         #200
+        state <= 0;
+        #100
+        test_MEM_BUS <= `DONT_CARE;
         state <= 5;
         #200
         state <= 6;
@@ -155,7 +203,7 @@ module TOP;
     
 
     datapathCS dp_controls(state, opcode, modrm, clk,
-                           aluk, sr1_out, sr2_out, dr_out, sr1_mux, sr2_mux,
+                           aluk, sr1_out, sr2_out, dr_out, sr1_mux, sr2_mux, alu_r_mux,
                            eip_adder_mux, eip_in_mux,
                            gate_signals, load_signals);
 
@@ -178,11 +226,12 @@ module TOP;
 						load_alu_r,
 
 						gate_alu,
+                        gate_sr2,
 						MEM_BUS
 						);
 
     register_structure reg_struct (
-                                   gate_sr1, gate_sr2,
+                                   gate_sr1,
                                    dr_out, sr1_out, sr2_out,
                                    load_reg,
                                    sr1_d, sr2_d, 
@@ -247,7 +296,7 @@ module alu_signal(opcode, opcode_reg, aluk);
 endmodule
 
 module datapathCS (state, opcode, modrm, clk,
-aluk, sr1_out, sr2_out, dr_out, sr1_mux_out, sr2_mux_out,
+aluk, sr1_out, sr2_out, dr_out, sr1_mux_out, sr2_mux_out, alu_r_mux_out,
 eip_adder_mux, eip_in_mux,
 gate_signals, load_signals
 );
@@ -262,19 +311,20 @@ assign opcode_reg = modrm[5:3];
 assign rm = modrm[2:0];
 
 output [2:0] sr1_out, sr2_out, dr_out;
-output [1:0] sr2_mux_out;
+output [1:0] sr2_mux_out, alu_r_mux_out;
 output sr1_mux_out;
 
 wire [2:0] sr1_out_temp, sr2_out_temp, dr_out_temp;
 wire [1:0] sr2_mux_out_temp;
+reg [1:0] alu_r_mux_out_temp;
 wire sr1_mux_out_temp;
 
 
 assign sr1_out = sr1_out_temp;
 assign sr2_out = sr2_out_temp;
-assign sr2_out = sr2_out_temp;
 assign sr1_mux_out = sr1_mux_out_temp;
 assign sr2_mux_out = sr2_mux_out_temp;
+assign alu_r_mux_out = alu_r_mux_out_temp;
 
 addressingModeCS agen(opcode, 8'hzz, 8'hzz, modrm, sr1_out_temp, sr2_out_temp, dr_out_temp, sr1_mux_out_temp, sr2_mux_out_temp);
 
@@ -300,6 +350,7 @@ always @* begin
         end
         'd3 : begin
             gate_signals <= `GATE_MDR;
+            alu_r_mux_out_temp <= `ALU_R_MUX_bus;
             load_signals <= `LD_ALU_R;
             eip_in_mux <= `DONT_CARE;
             eip_adder_mux <= `DONT_CARE;
@@ -332,6 +383,12 @@ always @* begin
             load_signals <= `LD_EIP;
             eip_in_mux <= `EIP_IN_MUX_adder;
             eip_adder_mux <= `EIP_ADDER_MUX_disp32;
+        end
+        'd20: begin // testing state
+            load_signals <= `LD_REG;
+            gate_signals <= `GATE_NONE;
+            eip_in_mux <= `DONT_CARE;
+            eip_adder_mux <= `DONT_CARE;
         end
         default: begin
             load_signals <= `LD_NONE;

@@ -1,12 +1,12 @@
 module register_structure (
-	gate_sr1, gate_sr2, 
+	gate_sr1,
 	dr_select, sr1_select, sr2_select,
 	dr_we,
 	sr1, sr2,
 	MEM_BUS, clk
 );
 input clk;
-input gate_sr1, gate_sr2;
+input gate_sr1;
 input dr_we;
 // input [1:0] reg_addressiblity;
 input [2:0] dr_select, sr1_select, sr2_select;
@@ -15,7 +15,6 @@ output [31:0] sr1, sr2;
 
 wire [2:0] dr_select;
 bus_gate sr1_gate(gate_sr1, sr1, MEM_BUS);
-bus_gate sr2_gate(gate_sr2, sr2, MEM_BUS);
 regfile8x32 regfile(MEM_BUS, sr1_select, sr2_select, 1'b1, 1'b1, dr_select, dr_we, sr1, sr2, clk);	
 endmodule
 
@@ -30,6 +29,7 @@ gate_addr_gen,
 alu_shf_mux_s, sr1_mux_s, sr2_mux_s, aluk,
 en_alu_shf,
 gate_alu,
+gate_sr2,
 MEM_BUS
 );
 
@@ -90,14 +90,25 @@ assign sr2_mux_s0 = sr2_mux_s[0];
 assign sr2_mux_s1 = sr2_mux_s[1];
 
 input en_alu_shf;
+reg [31:0] alu_reg;
 wire [31:0] alu_shf_in, alu_shf_d, alu_shf_dbar;
+assign alu_shf_d = alu_reg;
+assign alu_shf_dbar = ~alu_reg;
 mux4_32 alu_shf_mux (alu_shf_in, 'b0, 'b1, sr2, MEM_BUS, alu_shf_mux_s0, alu_shf_mux_s1);
-reg32e$ ALU_SHF_R (clk, alu_shf_in, alu_shf_d, alu_shf_dbar, en_alu_shf, en_alu_shf, en_alu_shf);
+always @(posedge clk) begin
+	if (en_alu_shf) begin
+		alu_reg <= alu_shf_in;
+	end
+end
+// reg32e$ ALU_SHF_R (clk, alu_shf_in, alu_shf_d, alu_shf_dbar, en_alu_shf, en_alu_shf, en_alu_shf);
 
 input gate_alu;
 wire [31:0] left_in_alu, right_in_alu, alu_out;
+
+input gate_sr2;
+bus_gate sr2_gate(gate_sr2, left_in_alu, MEM_BUS);
 mux2_32 sr1_mux (right_in_alu, sr1, alu_shf_d, sr1_mux_s);
-mux4_32 sr2_mux (left_in_alu, sr2, imm32, imm8_sext, alu_shf_d, sr2_mux_s0, sr2_mux_s1);
+mux4_32 sr2_mux (left_in_alu, sr2, imm8_sext, imm32, alu_shf_d, sr2_mux_s0, sr2_mux_s1);
 ALU_SHF alu_shf_unit (aluk, right_in_alu, left_in_alu, alu_out);
 bus_gate alu_gate(gate_alu, alu_out, MEM_BUS);
 endmodule
